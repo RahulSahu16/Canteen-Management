@@ -74,34 +74,54 @@ export async function listMasterMenu(req, res) {
 export async function getTodaysMenuConfig(req, res) {
   try {
     if (isMongoReady()) {
-      const items = await MenuItem.find({ isActive: true }).lean()
-      const today = await TodayMenu.findOne({}).lean()
-      const settings = (today && Array.isArray(today.items)) ? Object.fromEntries(today.items.map(i => [String(i.id), i])) : {}
-      const mapped = items.map((item) => ({
-        id: String(item._id),
-        _id: item._id,
-        name: item.name,
-        category: item.category,
-        description: item.description,
-        price: item.price,
-        image: formatImageUrl(req, item.image),
-        defaultStock: item.defaultStock,
-        available: settings[String(item._id)] ? settings[String(item._id)].available : true,
-        stock: settings[String(item._id)] ? settings[String(item._id)].stock : item.defaultStock,
-        dailyPrice: settings[String(item._id)] ? settings[String(item._id)].dailyPrice : item.price,
-      }))
-      return res.json({ publishedAt: today ? today.publishedAt : new Date().toISOString(), items: mapped })
+      const [dbItems, today] = await Promise.all([
+        MenuItem.find({ isActive: true }).lean(),
+        TodayMenu.findOne({}).lean(),
+      ])
+
+      const menuMap = Object.fromEntries(dbItems.map((item) => [String(item._id), item]))
+      const selectedItems = Array.isArray(today?.items) ? today.items : []
+
+      const mapped = selectedItems
+        .map((entry) => {
+          const menuItem = menuMap[String(entry.id)]
+          if (!menuItem) {
+            return null
+          }
+
+          return {
+            id: String(menuItem._id),
+            _id: menuItem._id,
+            name: menuItem.name,
+            category: menuItem.category,
+            description: menuItem.description,
+            price: menuItem.price,
+            image: formatImageUrl(req, menuItem.image),
+            defaultStock: menuItem.defaultStock,
+            available: Boolean(entry.available),
+            stock: typeof entry.stock === 'number' ? entry.stock : menuItem.defaultStock,
+            dailyPrice: typeof entry.dailyPrice === 'number' ? entry.dailyPrice : menuItem.price,
+          }
+        })
+        .filter(Boolean)
+
+      return res.json({
+        publishedAt: today ? today.publishedAt : new Date().toISOString(),
+        items: mapped,
+      })
     }
 
-    const items = masterMenu.map((item) => {
-      const setting = getTodaySetting(item)
-      return {
-        ...item,
-        available: setting.available,
-        stock: setting.stock,
-        dailyPrice: setting.dailyPrice,
-      }
-    })
+    const items = masterMenu
+      .filter((item) => getTodaySetting(item).available)
+      .map((item) => {
+        const setting = getTodaySetting(item)
+        return {
+          ...item,
+          available: setting.available,
+          stock: setting.stock,
+          dailyPrice: setting.dailyPrice,
+        }
+      })
     return res.json({ publishedAt: todaysMenu.publishedAt, items })
   } catch (error) {
     return res.status(500).json({ error: error.message })

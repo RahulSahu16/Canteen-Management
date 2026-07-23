@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { io } from 'socket.io-client'
 import { fetchTodaysMenuConfig, fetchOrders, publishTodaysMenu, updateOrderStatus, fetchMasterMenu, createMenuItem, updateMenuItem, deleteMenuItem } from '../../services/api.js'
 import Button from '../../components/ui/common/Button.jsx'
@@ -24,8 +24,11 @@ export default function StaffDashboardPage() {
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [publishStatus, setPublishStatus] = useState('')
   const [error, setError] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
-  const loadOrders = async (targetPage = 1) => {
+  const loadOrders = useCallback(async (targetPage = 1) => {
     try {
       const data = await fetchOrders(targetPage, limit, 'active')
       setOrders(data.orders)
@@ -37,31 +40,42 @@ export default function StaffDashboardPage() {
     } catch (err) {
       setError(err.response?.data?.error || 'Unable to load orders.')
     }
-  }
+  }, [limit])
 
-  const loadMenuConfig = async () => {
+  const loadMenuConfig = useCallback(async () => {
     try {
       const config = await fetchTodaysMenuConfig()
       setTodayItems(config.items)
     } catch (err) {
       setError(err.response?.data?.error || 'Unable to load menu config.')
     }
-  }
+  }, [])
 
-  const loadMaster = async () => {
+  const loadMaster = useCallback(async () => {
     try {
       const items = await fetchMasterMenu()
       setMasterItems(items)
     } catch (err) {
       setError(err.response?.data?.error || 'Unable to load master menu.')
     }
-  }
+  }, [])
+
+  const refreshDashboard = useCallback(async () => {
+    setIsRefreshing(true)
+    try {
+      await Promise.all([loadOrders(page), loadMenuConfig(), loadMaster()])
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [page, loadOrders, loadMenuConfig, loadMaster])
 
   useEffect(() => {
-    loadOrders(page)
-    loadMenuConfig()
-    loadMaster()
-  }, [page])
+    const timer = window.setTimeout(() => {
+      void refreshDashboard()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [page, refreshDashboard])
 
   useEffect(() => {
     const socket = io(socketUrl)
@@ -72,7 +86,7 @@ export default function StaffDashboardPage() {
     socket.on('order-completed', () => loadOrders(page))
     socket.on('menu-updated', () => loadMenuConfig())
     return () => socket.disconnect()
-  }, [page])
+  }, [page, loadOrders, loadMenuConfig])
 
   const statusIndex = (status) => {
     const index = STATUS_FLOW.indexOf(status)
@@ -213,25 +227,68 @@ export default function StaffDashboardPage() {
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit])
 
-  return (
-    <div className="min-h-screen bg-slate-100 px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="rounded-[2rem] bg-white p-8 shadow-xl">
-          <h1 className="text-3xl font-bold text-slate-900">Canteen Staff Dashboard</h1>
-          <p className="mt-2 text-slate-600">Manage today’s menu availability and move orders through the kitchen pipeline.</p>
-        </div>
+  const filteredOrders = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase()
 
-        <div className="rounded-[2rem] bg-white p-6 shadow-xl">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    return orders.filter((order) => {
+      const matchesStatus = statusFilter === 'all' || order.status === statusFilter
+      const matchesSearch = !term || [order.id, order.mobile, order.seatId].some((value) => String(value || '').toLowerCase().includes(term))
+      return matchesStatus && matchesSearch
+    })
+  }, [orders, searchTerm, statusFilter])
+
+  return (
+    <main
+      className="min-h-screen bg-cover bg-center bg-no-repeat text-white"
+      style={{
+        backgroundImage: `
+          linear-gradient(
+            rgba(2,6,23,0.74),
+            rgba(2,6,23,0.74)
+          ),
+          url('/images/cricket-stadium.jpg')
+        `,
+      }}
+    >
+      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+        <section className="rounded-[32px] border border-white/15 bg-slate-900/40 p-8 shadow-2xl backdrop-blur-2xl sm:p-10">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h2 className="text-2xl font-semibold text-slate-900">Manage Today's Menu</h2>
-              <p className="mt-2 text-slate-600">Pick which master menu items are available for players today.</p>
+              <div className="flex items-center gap-3">
+                <span className="inline-flex h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(74,222,128,1)]" />
+                <span className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-200">Live Board</span>
+              </div>
+              <h1 className="mt-3 text-4xl font-extrabold text-white sm:text-5xl">Canteen Staff Dashboard</h1>
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button className={`${tab === 'manage' ? 'bg-blue-600' : 'bg-slate-200 text-slate-900'}`} onClick={() => setTab('manage')}>Manage Today</Button>
-              <Button className={`${tab === 'all' ? 'bg-blue-600' : 'bg-slate-200 text-slate-900'}`} onClick={() => setTab('all')}>All Food</Button>
-              <Button className={`${tab === 'orders' ? 'bg-blue-600' : 'bg-slate-200 text-slate-900'}`} onClick={() => setTab('orders')}>Orders</Button>
-              <Button className={`${tab === 'add' ? 'bg-emerald-600' : 'bg-emerald-300 text-slate-900'}`} onClick={() => setTab('add')}>Add Food</Button>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-300">Active Orders</p>
+                <p className="mt-2 text-3xl font-bold text-white">{total}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-300">Today's Items</p>
+                <p className="mt-2 text-3xl font-bold text-white">{todayItems.length}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-300">Master Menu</p>
+                <p className="mt-2 text-3xl font-bold text-white">{masterItems.length}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-6 rounded-[32px] border border-white/15 bg-slate-900/45 p-6 shadow-2xl backdrop-blur-2xl">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            
+            <div className="flex flex-wrap gap-3">
+              <Button className={`h-12 px-4 ${tab === 'manage' ? 'bg-green-600' : 'bg-slate-200 text-slate-900'}`} onClick={() => setTab('manage')}>Manage Today</Button>
+              <Button className={`h-12 px-4 ${tab === 'all' ? 'bg-green-600' : 'bg-slate-200 text-slate-900'}`} onClick={() => setTab('all')}>All Food</Button>
+              <Button className={`h-12 px-4 ${tab === 'orders' ? 'bg-green-600' : 'bg-slate-200 text-slate-900'}`} onClick={() => setTab('orders')}>Orders</Button>
+              <Button className={`h-12 px-4 ${tab === 'add' ? 'bg-emerald-600' : 'bg-emerald-200 text-slate-900'}`} onClick={() => setTab('add')}>Add Food</Button>
+              <Button className="h-12 bg-white/10 px-4 text-sm text-white" onClick={() => void refreshDashboard()}>
+                {isRefreshing ? 'Refreshing…' : 'Refresh Live'}
+              </Button>
             </div>
           </div>
 
@@ -239,51 +296,71 @@ export default function StaffDashboardPage() {
             <>
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 {todayItems.map((item) => (
-                  <div key={item.id} className="rounded-3xl border border-slate-200 p-4 shadow-sm">
+                  <article key={item.id} className="rounded-[28px] border border-white/10 bg-white/10 p-5 shadow-lg shadow-slate-950/20 backdrop-blur-sm">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <h3 className="text-lg font-semibold text-slate-900">{item.name}</h3>
-                        <p className="mt-1 text-sm text-slate-600">{item.category}</p>
-                        <p className="mt-1 text-sm text-slate-600">{item.description}</p>
-                        <p className="mt-2 text-sm font-semibold text-slate-900">₹{item.dailyPrice}</p>
+                        <h3 className="text-xl font-semibold text-white">{item.name}</h3>
+                        <p className="mt-1 text-sm text-slate-300">{item.category}</p>
+                        <p className="mt-2 text-sm text-slate-300">{item.description}</p>
+                        <p className="mt-3 text-lg font-bold text-green-300">₹{item.dailyPrice}</p>
                       </div>
-                      <div className={`rounded-full px-3 py-1 text-sm font-semibold ${item.available ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>
+                      <div className={`rounded-full px-3 py-1 text-sm font-semibold ${item.available ? 'bg-emerald-400/20 text-emerald-200' : 'bg-slate-200/20 text-slate-200'}`}>
                         {item.available ? 'Available' : 'Hidden'}
                       </div>
                     </div>
                     <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <label className="flex items-center gap-2 text-sm text-slate-200">
                         <input
                           type="checkbox"
                           checked={item.available}
                           onChange={() => handleToggleAvailability(item.id)}
-                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          className="h-4 w-4 rounded border-slate-300 text-green-500 focus:ring-green-400"
                         />
                         Available today
                       </label>
                     </div>
-                  </div>
+                  </article>
                 ))}
               </div>
 
               <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <Button onClick={handlePublishMenu}>Publish Menu</Button>
-                {publishStatus && <span className="text-sm text-emerald-700">{publishStatus}</span>}
+                {publishStatus && <span className="text-sm text-emerald-200">{publishStatus}</span>}
               </div>
             </>
           ) : tab === 'orders' ? (
             <>
-              <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <h2 className="text-2xl font-semibold text-slate-900">Current Pending Orders</h2>
-                  <p className="mt-1 text-sm text-slate-600">Click an order to move it through the kitchen stages.</p>
+              <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-1 flex-col gap-3 md:flex-row">
+                  <input
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search by order ID, seat or mobile"
+                    className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-slate-950/30 px-4 py-3 text-sm text-white placeholder:text-slate-400"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    {['all', 'Pending', 'Accepted', 'Preparing', 'Ready'].map((filter) => (
+                      <button
+                        key={filter}
+                        type="button"
+                        onClick={() => setStatusFilter(filter)}
+                        className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
+                          statusFilter === filter
+                            ? 'bg-green-400 text-slate-950'
+                            : 'border border-white/10 bg-white/10 text-slate-200 hover:bg-white/20'
+                        }`}
+                      >
+                        {filter === 'all' ? 'All Status' : filter}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">{total} active</span>
+                <span className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white">{total} active</span>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                  <thead className="bg-slate-50 text-slate-700">
+              <div className="mt-4 overflow-x-auto rounded-[24px] border border-white/10 bg-slate-950/10">
+                <table className="min-w-full divide-y divide-white/10 text-left text-sm text-white">
+                  <thead className="bg-white/10 text-slate-200">
                     <tr>
                       <th className="px-4 py-3">Order ID</th>
                       <th className="px-4 py-3">Seat / Mobile</th>
@@ -293,19 +370,19 @@ export default function StaffDashboardPage() {
                       <th className="px-4 py-3">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {orders.map((order) => (
+                  <tbody className="divide-y divide-white/10">
+                    {filteredOrders.map((order) => (
                       <tr
                         key={order.id}
                         onClick={() => setSelectedOrder(order)}
-                        className={`cursor-pointer transition hover:bg-slate-50 ${selectedOrder?.id === order.id ? 'bg-blue-50' : ''}`}
+                        className={`cursor-pointer transition hover:bg-white/10 ${selectedOrder?.id === order.id ? 'bg-green-500/10' : ''}`}
                       >
-                        <td className="px-4 py-4 font-medium text-slate-900">{order.id}</td>
-                        <td className="px-4 py-4 text-slate-700">{order.seatId} / {order.mobile}</td>
-                        <td className="px-4 py-4 text-slate-700">
+                        <td className="px-4 py-4 font-medium text-white">{order.id}</td>
+                        <td className="px-4 py-4 text-slate-200">{order.seatId} / {order.mobile}</td>
+                        <td className="px-4 py-4 text-slate-200">
                           {order.items.map((item) => `${item.name}×${item.qty}`).join(', ')}
                         </td>
-                        <td className="px-4 py-4 text-slate-700">₹{order.total}</td>
+                        <td className="px-4 py-4 text-slate-200">₹{order.total}</td>
                         <td className="px-4 py-4">
                           <span className={`rounded-full px-3 py-1 text-xs font-bold ${statusBadgeClass(order.status)}`}>{order.status}</span>
                         </td>
@@ -316,7 +393,7 @@ export default function StaffDashboardPage() {
                               event.stopPropagation()
                               setSelectedOrder(order)
                             }}
-                            className="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+                            className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white"
                           >
                             Open
                           </button>
@@ -327,33 +404,33 @@ export default function StaffDashboardPage() {
                 </table>
               </div>
 
-              {orders.length === 0 && (
-                <p className="mt-5 rounded-2xl bg-slate-50 p-5 text-slate-500">No current pending orders.</p>
+              {filteredOrders.length === 0 && (
+                <p className="mt-5 rounded-2xl bg-white/10 p-5 text-slate-300">No orders match the current search or status filter.</p>
               )}
 
               {selectedOrder && (
-                <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-6">
+                <div className="mt-6 rounded-[28px] border border-white/10 bg-white/10 p-6 shadow-lg backdrop-blur-sm">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div>
-                      <p className="text-sm text-slate-500">Selected Order</p>
-                      <h3 className="text-2xl font-bold text-slate-900">{selectedOrder.id}</h3>
-                      <p className="mt-2 text-slate-600">{selectedOrder.seatId} / {selectedOrder.mobile}</p>
+                      <p className="text-sm text-slate-300">Selected Order</p>
+                      <h3 className="text-2xl font-bold text-white">{selectedOrder.id}</h3>
+                      <p className="mt-2 text-slate-200">{selectedOrder.seatId} / {selectedOrder.mobile}</p>
                     </div>
                     <span className={`w-fit rounded-full px-4 py-2 text-sm font-bold ${statusBadgeClass(selectedOrder.status)}`}>{selectedOrder.status}</span>
                   </div>
 
                   <div className="mt-5 grid gap-3 md:grid-cols-2">
                     {selectedOrder.items.map((item) => (
-                      <div key={`${selectedOrder.id}-${item.id || item.foodId || item.name}`} className="rounded-2xl bg-white p-4 shadow-sm">
-                        <p className="font-semibold text-slate-900">{item.name}</p>
-                        <p className="text-sm text-slate-500">Qty: {item.qty} - Rs.{item.price} each</p>
+                      <div key={`${selectedOrder.id}-${item.id || item.foodId || item.name}`} className="rounded-2xl bg-slate-900/40 p-4 shadow-sm">
+                        <p className="font-semibold text-white">{item.name}</p>
+                        <p className="text-sm text-slate-300">Qty: {item.qty} - Rs.{item.price} each</p>
                       </div>
                     ))}
                   </div>
 
-                  <div className="mt-5 flex items-center justify-between border-t border-slate-200 pt-4">
-                    <span className="font-semibold text-slate-700">Total</span>
-                    <strong className="text-2xl text-slate-900">Rs.{selectedOrder.total}</strong>
+                  <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4">
+                    <span className="font-semibold text-slate-200">Total</span>
+                    <strong className="text-2xl text-green-300">Rs.{selectedOrder.total}</strong>
                   </div>
 
                   <div className="mt-6 grid gap-3 md:grid-cols-3">
@@ -369,8 +446,8 @@ export default function StaffDashboardPage() {
                           onClick={() => handleStatusUpdate(selectedOrder, stage.status)}
                           className={`rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition disabled:cursor-default ${
                             reached
-                              ? 'border-blue-200 bg-blue-50 text-blue-800'
-                              : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50'
+                              ? 'border-green-300/50 bg-green-500/10 text-green-100'
+                              : 'border-white/15 bg-slate-900/40 text-slate-100 hover:border-green-300/40 hover:bg-green-500/10'
                           }`}
                         >
                           {stage.label}
@@ -379,7 +456,7 @@ export default function StaffDashboardPage() {
                     })}
                     <button
                       onClick={() => handleStatusUpdate(selectedOrder, 'Cancelled')}
-                      className="rounded-2xl border border-red-200 bg-white px-4 py-3 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
+                      className="rounded-2xl border border-red-400/40 bg-slate-900/40 px-4 py-3 text-left text-sm font-semibold text-red-200 hover:bg-red-500/10"
                     >
                       Cancel Order
                     </button>
@@ -388,10 +465,10 @@ export default function StaffDashboardPage() {
               )}
 
               <div className="mt-6 flex items-center justify-between">
-                <p className="text-sm text-slate-600">Page {page} of {totalPages}</p>
+                <p className="text-sm text-slate-300">Page {page} of {totalPages}</p>
                 <div className="flex items-center gap-3">
-                  <button disabled={page <= 1} className="rounded-full border px-4 py-2 disabled:opacity-50" onClick={() => setPage(page - 1)}>Previous</button>
-                  <button disabled={page >= totalPages} className="rounded-full border px-4 py-2 disabled:opacity-50" onClick={() => setPage(page + 1)}>Next</button>
+                  <button disabled={page <= 1} className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-white disabled:opacity-50" onClick={() => setPage(page - 1)}>Previous</button>
+                  <button disabled={page >= totalPages} className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-white disabled:opacity-50" onClick={() => setPage(page + 1)}>Next</button>
                 </div>
               </div>
             </>
@@ -399,35 +476,35 @@ export default function StaffDashboardPage() {
           {tab === 'all' && (
             <div className="mt-6 grid gap-4 md:grid-cols-2">
               {masterItems.map((item) => (
-                <div key={item.id} className="rounded-3xl border border-slate-200 p-4 shadow-sm">
+                <article key={item.id} className="rounded-[28px] border border-white/10 bg-white/10 p-4 shadow-lg shadow-slate-950/20 backdrop-blur-sm">
                   <div className="space-y-3">
                     {item.image && <img src={item.image} alt={item.name} className="h-44 w-full rounded-3xl object-cover" />}
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <h3 className="text-lg font-semibold text-slate-900">{item.name}</h3>
-                        <p className="mt-1 text-sm text-slate-600">{item.category}</p>
-                        <p className="mt-1 text-sm text-slate-600">{item.description}</p>
-                        <p className="mt-2 text-sm font-semibold text-slate-900">₹{item.price}</p>
+                        <h3 className="text-lg font-semibold text-white">{item.name}</h3>
+                        <p className="mt-1 text-sm text-slate-300">{item.category}</p>
+                        <p className="mt-1 text-sm text-slate-300">{item.description}</p>
+                        <p className="mt-2 text-sm font-semibold text-green-300">₹{item.price}</p>
                       </div>
                       <div className="flex flex-col gap-2">
-                        <Button onClick={() => handleAddToToday(item)}>Add to Today's Menu</Button>
-                        <Button className="bg-slate-200 text-slate-900" onClick={() => startEditFood(item)}>Edit</Button>
-                        <Button className="bg-red-600" onClick={() => handleDeleteFood(item)}>Delete</Button>
+                        <Button className="h-11 px-4 text-sm" onClick={() => handleAddToToday(item)}>Add to Today's Menu</Button>
+                        <Button className="h-11 bg-slate-200 px-4 text-sm text-slate-900" onClick={() => startEditFood(item)}>Edit</Button>
+                        <Button className="h-11 bg-red-600 px-4 text-sm" onClick={() => handleDeleteFood(item)}>Delete</Button>
                       </div>
                     </div>
                   </div>
-                </div>
+                </article>
               ))}
             </div>
           )}
 
           {tab === 'add' && (
-            <div className="mt-6">
+            <div className="mt-6 rounded-[28px] border border-white/10 bg-white/10 p-6 shadow-lg backdrop-blur-sm">
               <div className="grid gap-3 md:grid-cols-2">
-                <input className="p-2 border" placeholder="Name" value={newFood.name} onChange={(e) => setNewFood({ ...newFood, name: e.target.value })} />
-                <input className="p-2 border" placeholder="Category" value={newFood.category} onChange={(e) => setNewFood({ ...newFood, category: e.target.value })} />
+                <input className="rounded-2xl border border-white/10 bg-slate-950/30 p-3 text-white placeholder:text-slate-400" placeholder="Name" value={newFood.name} onChange={(e) => setNewFood({ ...newFood, name: e.target.value })} />
+                <input className="rounded-2xl border border-white/10 bg-slate-950/30 p-3 text-white placeholder:text-slate-400" placeholder="Category" value={newFood.category} onChange={(e) => setNewFood({ ...newFood, category: e.target.value })} />
                 <input
-                  className="p-2 border"
+                  className="rounded-2xl border border-white/10 bg-slate-950/30 p-3 text-white"
                   type="file"
                   accept="image/*"
                   onChange={(e) => {
@@ -438,13 +515,13 @@ export default function StaffDashboardPage() {
                     }
                   }}
                 />
-                <input className="p-2 border" placeholder="Price" value={newFood.price} onChange={(e) => setNewFood({ ...newFood, price: e.target.value })} />
-                <textarea className="p-2 border md:col-span-2" placeholder="Description" value={newFood.description} onChange={(e) => setNewFood({ ...newFood, description: e.target.value })} />
+                <input className="rounded-2xl border border-white/10 bg-slate-950/30 p-3 text-white placeholder:text-slate-400" placeholder="Price" value={newFood.price} onChange={(e) => setNewFood({ ...newFood, price: e.target.value })} />
+                <textarea className="rounded-2xl border border-white/10 bg-slate-950/30 p-3 text-white placeholder:text-slate-400 md:col-span-2" placeholder="Description" value={newFood.description} onChange={(e) => setNewFood({ ...newFood, description: e.target.value })} />
               </div>
               {previewImage && (
                 <div className="mt-4">
-                  <p className="text-sm text-slate-600">Preview</p>
-                  <img src={previewImage} alt="Preview" className="max-h-48 rounded-3xl object-cover" />
+                  <p className="text-sm text-slate-300">Preview</p>
+                  <img src={previewImage} alt="Preview" className="mt-2 max-h-48 rounded-3xl object-cover" />
                 </div>
               )}
               <div className="mt-4">
@@ -453,20 +530,20 @@ export default function StaffDashboardPage() {
             </div>
           )}
           {editingItem && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-              <div className="w-full max-w-2xl rounded-[2rem] bg-white p-6 shadow-xl">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="w-full max-w-2xl rounded-[2rem] border border-white/10 bg-slate-900/90 p-6 text-white shadow-2xl backdrop-blur-xl">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-2xl font-semibold text-slate-900">Edit Menu Item</h2>
-                    <p className="text-sm text-slate-500">Update the food item and photo.</p>
+                    <h2 className="text-2xl font-semibold text-white">Edit Menu Item</h2>
+                    <p className="text-sm text-slate-300">Update the food item and photo.</p>
                   </div>
-                  <button className="text-slate-500" onClick={closeEditModal}>Close</button>
+                  <button className="text-slate-300" onClick={closeEditModal}>Close</button>
                 </div>
                 <div className="mt-6 grid gap-3 md:grid-cols-2">
-                  <input className="p-2 border" value={editFood.name} onChange={(e) => setEditFood({ ...editFood, name: e.target.value })} />
-                  <input className="p-2 border" value={editFood.category} onChange={(e) => setEditFood({ ...editFood, category: e.target.value })} />
+                  <input className="rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-white" value={editFood.name} onChange={(e) => setEditFood({ ...editFood, name: e.target.value })} />
+                  <input className="rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-white" value={editFood.category} onChange={(e) => setEditFood({ ...editFood, category: e.target.value })} />
                   <input
-                    className="p-2 border"
+                    className="rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-white"
                     type="file"
                     accept="image/*"
                     onChange={(e) => {
@@ -477,27 +554,27 @@ export default function StaffDashboardPage() {
                       }
                     }}
                   />
-                  <input className="p-2 border" value={editFood.price} onChange={(e) => setEditFood({ ...editFood, price: e.target.value })} />
-                  <textarea className="p-2 border md:col-span-2" value={editFood.description} onChange={(e) => setEditFood({ ...editFood, description: e.target.value })} />
+                  <input className="rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-white" value={editFood.price} onChange={(e) => setEditFood({ ...editFood, price: e.target.value })} />
+                  <textarea className="rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-white md:col-span-2" value={editFood.description} onChange={(e) => setEditFood({ ...editFood, description: e.target.value })} />
                 </div>
                 {editPreviewImage && (
                   <div className="mt-4">
-                    <p className="text-sm text-slate-600">Preview</p>
-                    <img src={editPreviewImage} alt="Preview" className="max-h-48 rounded-3xl object-cover" />
+                    <p className="text-sm text-slate-300">Preview</p>
+                    <img src={editPreviewImage} alt="Preview" className="mt-2 max-h-48 rounded-3xl object-cover" />
                   </div>
                 )}
                 <div className="mt-4 flex gap-3">
                   <Button onClick={handleUpdateFood}>Save changes</Button>
                   <Button className="bg-red-600" onClick={() => handleDeleteFood(editingItem)}>Delete</Button>
-                  <button className="rounded-2xl border px-4 py-2 text-slate-700" onClick={closeEditModal}>Cancel</button>
+                  <button className="rounded-2xl border border-white/15 px-4 py-2 text-slate-100" onClick={closeEditModal}>Cancel</button>
                 </div>
               </div>
             </div>
           )}
 
-          {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
-        </div>
+          {error && <p className="mt-4 text-sm text-rose-300">{error}</p>}
+        </section>
       </div>
-    </div>
+    </main>
   )
 }
