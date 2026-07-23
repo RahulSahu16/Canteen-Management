@@ -272,42 +272,44 @@ export default function MenuPage() {
           <section className="space-y-6">
             <h2 className="text-3xl font-bold text-slate-900">Food Menu</h2>
 
-            {menu
-              .filter((item) => item.available)
-              .map((item) => {
-                const quantity = cart.items.find((x) => x.id === item.id)?.qty || 0
-                const disabled = Boolean(activeOrder)
+            <div className="grid gap-6 lg:grid-cols-2">
+              {menu
+                .filter((item) => item.available)
+                .map((item) => {
+                  const quantity = cart.items.find((x) => x.id === item.id)?.qty || 0
+                  const disabled = Boolean(activeOrder)
 
-                return (
-                  <article key={item.id} className="flex flex-col gap-6 rounded-3xl bg-white p-5 shadow-md transition hover:shadow-xl md:flex-row">
-                    <img src={item.image} alt={item.name} className="h-44 w-full rounded-2xl object-cover md:w-60" />
+                  return (
+                    <article key={item.id} className="flex flex-col gap-6 rounded-3xl bg-white p-5 shadow-md transition hover:shadow-xl">
+                      <img src={item.image} alt={item.name} className="h-44 w-full rounded-2xl object-cover" />
 
-                    <div className="flex flex-1 flex-col justify-between">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <h3 className="text-2xl font-bold text-slate-900">{item.name}</h3>
-                          <p className="mt-2 text-slate-500">{item.description}</p>
-                        </div>
-                        <span className="text-2xl font-bold text-green-700">Rs.{item.price}</span>
-                      </div>
-
-                      <div className="mt-6 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <button disabled={disabled} onClick={() => removeItem(item)} className="flex h-10 w-10 items-center justify-center rounded-full border disabled:opacity-40">
-                            -
-                          </button>
-                          <span className="w-8 text-center text-xl font-bold">{quantity}</span>
-                          <button disabled={disabled} onClick={() => addItem(item)} className="flex h-10 w-10 items-center justify-center rounded-full border disabled:opacity-40">
-                            +
-                          </button>
+                      <div className="flex flex-1 flex-col justify-between">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <h3 className="text-2xl font-bold text-slate-900">{item.name}</h3>
+                            <p className="mt-2 text-slate-500">{item.description}</p>
+                          </div>
+                          <span className="text-2xl font-bold text-green-700">Rs.{item.price}</span>
                         </div>
 
-                        <Button disabled={disabled} onClick={() => addItem(item)}>Add</Button>
+                        <div className="mt-6 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <button disabled={disabled} onClick={() => removeItem(item)} className="flex h-10 w-10 items-center justify-center rounded-full border disabled:opacity-40">
+                              -
+                            </button>
+                            <span className="w-8 text-center text-xl font-bold">{quantity}</span>
+                            <button disabled={disabled} onClick={() => addItem(item)} className="flex h-10 w-10 items-center justify-center rounded-full border disabled:opacity-40">
+                              +
+                            </button>
+                          </div>
+
+                          <Button disabled={disabled} onClick={() => addItem(item)}>Add</Button>
+                        </div>
                       </div>
-                    </div>
-                  </article>
-                )
-              })}
+                    </article>
+                  )
+                })}
+            </div>
           </section>
 
           <aside>

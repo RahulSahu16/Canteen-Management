@@ -254,10 +254,7 @@ export default function StaffDashboardPage() {
         <section className="rounded-[32px] border border-white/15 bg-slate-900/40 p-8 shadow-2xl backdrop-blur-2xl sm:p-10">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <div className="flex items-center gap-3">
-                <span className="inline-flex h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(74,222,128,1)]" />
-                <span className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-200">Live Board</span>
-              </div>
+              
               <h1 className="mt-3 text-4xl font-extrabold text-white sm:text-5xl">Canteen Staff Dashboard</h1>
             </div>
 
