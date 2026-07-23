@@ -310,7 +310,16 @@ export default function StaffDashboardPage() {
                           <span className={`rounded-full px-3 py-1 text-xs font-bold ${statusBadgeClass(order.status)}`}>{order.status}</span>
                         </td>
                         <td className="px-4 py-4">
-                          <button className="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">Open</button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setSelectedOrder(order)
+                            }}
+                            className="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+                          >
+                            Open
+                          </button>
                         </td>
                       </tr>
                     ))}
